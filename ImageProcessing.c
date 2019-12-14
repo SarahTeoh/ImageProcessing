@@ -1,12 +1,13 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 
 /*
  * マクロ定義
  */
 #define min(A, B) ((A)<(B) ? (A) : (B))
 #define max(A, B) ((A)>(B) ? (A) : (B))
-
+#define COEFFICIENTSIZE 3
 /*
  * 画像構造体の定義
  */
@@ -25,12 +26,12 @@ typedef struct
  *======================================================================
  */
 void
-parseArg(int argc, char **argv, FILE **infp, FILE **outfp)
+parseArg(int argc, char **argv, FILE **infp, FILE **outfp, int *typeOfFilter, int *typeOfEquation)
 {
     FILE *fp;
 
     /* 引数の個数をチェック */
-    if (argc!=3)
+    if (argc<4)
     {
         goto usage;
     }
@@ -47,6 +48,14 @@ parseArg(int argc, char **argv, FILE **infp, FILE **outfp)
     *outfp = fopen(argv[2], "wb"); /* 出力画像ファイルをバイナリモードで */
                                 /* オープン */
 
+    *typeOfFilter = atoi(argv[3]);
+
+    if(argv[4]== NULL){
+      *typeOfEquation = 0;
+    }else{
+      *typeOfEquation = atoi(argv[4]);
+    };
+
     if (*outfp==NULL)		/* オープンできない時はエラー */
     {
         fputs("Opening the output file was failend\n", stderr);
@@ -57,7 +66,7 @@ parseArg(int argc, char **argv, FILE **infp, FILE **outfp)
 
 /* このプログラムの使い方の説明 */
 usage:
-    fprintf(stderr, "usage : %s <input pgm file> <output pgm file>\n", argv[0]);
+    fprintf(stderr, "usage : %s <input pgm file> <output pgm file> <type of filter> [which equation: 2 or 3]\n", argv[0]);
     exit(1);
 }
 
@@ -85,7 +94,6 @@ initImage(image_t *ptImage, int width, int height, int maxValue)
         exit(1);
     }
 }
-
 
 /*======================================================================
  * 文字列一行読み込み関数
@@ -203,7 +211,6 @@ readPgmRawBitmapData(FILE *fp, image_t *ptImage)
     }
 }
 
-
 /*======================================================================
  * フィルタリング(ネガポジ反転)
  *======================================================================
@@ -215,6 +222,7 @@ filteringImage(image_t *resultImage, image_t *originalImage)
 {
     int     x, y;
     int     width, height;
+    //unsigned char tmpPixel;
 
     /* originalImage と resultImage のサイズが違う場合は、共通部分のみ */
     /* を処理する。*/
@@ -225,12 +233,108 @@ filteringImage(image_t *resultImage, image_t *originalImage)
     {
         for(x=0; x<width; x++)
         {
+          /* ネガポジ反転*/
             resultImage->data[x+resultImage->width*y]
                     = ( originalImage->maxValue
                     -originalImage->data[x+originalImage->width*y] )
                     *resultImage->maxValue/originalImage->maxValue;
         }
     }
+}
+
+void
+roberts(image_t *resultImage, image_t *originalImage)
+{
+    int     x, y, l, m;
+    float g1, g2;
+    int     width, height;
+    float tmpPixel;
+
+    /* originalImage と resultImage のサイズが違う場合は、共通部分のみ */
+    /* を処理する。*/
+    width = min(originalImage->width, resultImage->width);
+    height = min(originalImage->height, resultImage->height);
+
+    for(y=0; y<height; y++)
+    {
+        for(x=0; x<width; x++)
+        {
+
+          l = ((x+1)>width-1) ? width-1 : x+1;
+          m = ((y+1)>height-1) ? height-1 : y+1;
+
+          g1 = sqrt(originalImage->data[x+originalImage->width*y]) - sqrt(originalImage->data[l+originalImage->width*m]);
+          g2 = sqrt(originalImage->data[x+originalImage->width*m]) - sqrt(originalImage->data[l+originalImage->width*y]);
+          tmpPixel = sqrt(g1*g1 + g2*g2);
+
+          tmpPixel = (tmpPixel<0) ? 0 : ((tmpPixel>=255) ? 255 : tmpPixel );
+          resultImage->data[x+resultImage->width*y] = tmpPixel;
+
+        }
+    }
+}
+
+void
+prewittOrSobel(image_t *resultImage, image_t *originalImage, int *typeOfFilter, int *typeOfEquation)
+{
+  double tmpX, tmpY;
+  int o, p, j, k, x, y;
+  double tmpPixel;
+  int width, height;
+
+  width = min(originalImage->width, resultImage->width);
+  height = min(originalImage->height, resultImage->height);
+
+  //Prewittフィルタ
+  int prewittX[9] = {-1, 0, 1, //水平方向
+                    -1, 0, 1,
+                    -1, 0, 1};
+  int prewittY[9] = {-1,-1,-1, //垂直方向
+                    0, 0, 0,
+                    1, 1, 1};
+
+  //Sobelフィルタ
+  int sobelX[9] = {-1, 0, 1, //水平方向
+                    -2, 0, 2,
+                    -1, 0, 1};
+  int sobelY[9] = {-1, -2, -1, //垂直方向
+                    0,  0,  0,
+                    1,  2,  1};
+
+
+
+  for(y=0; y<height; y++)
+  {
+    for(x=0; x<width; x++)
+    {
+      /* 初期化 */
+      tmpX = 0.0;
+      tmpY = 0.0;
+
+      for(o=-1; o<=1; o++){
+        for(p=-1; p<=1; p++){
+          j = ((x+o)<0) ? 0 : (((x+o)>width-1) ? width-1 : x+o);
+          k = ((y+p)<0) ? 0 : (((y+p)>height-1) ? height-1 : y+p);
+          if(*typeOfFilter==2){ /* Prewittフィルタを使う場合 */
+            tmpX += prewittX[(o+1)+COEFFICIENTSIZE*(p+1)]*originalImage->data[j+originalImage->width*k];
+            tmpY += prewittY[(o+1)+COEFFICIENTSIZE*(p+1)]*originalImage->data[j+originalImage->width*k];
+          }else if(*typeOfFilter==3){ /* Soberフィルタを使う場合 */
+            tmpX += sobelX[(o+1)+COEFFICIENTSIZE*(p+1)]*originalImage->data[j+originalImage->width*k];
+            tmpY += sobelY[(o+1)+COEFFICIENTSIZE*(p+1)]*originalImage->data[j+originalImage->width*k];
+          }
+        }
+      }
+
+      /* 式(2)を使う場合 */
+      if(*typeOfEquation==2){
+        tmpPixel = sqrt(tmpX*tmpX + tmpY*tmpY);
+      }else{ /* 特に指定しなければ式(3)を使う */
+        tmpPixel = fabs(tmpX) + fabs(tmpY);
+      }
+      tmpPixel = (tmpPixel<0) ? 0 : ((tmpPixel>=255) ? 255 : tmpPixel );　/* 階調値が0から255の範囲に収るようにする*/
+      resultImage->data[x+resultImage->width*y] = tmpPixel; /* 新しい階調値を設定する*/
+    }
+  }
 }
 
 /*======================================================================
@@ -293,11 +397,12 @@ writePgmRawBitmapData(FILE *fp, image_t *ptImage)
  */
 int main(int argc, char **argv)
 {
-    image_t originalImage, resultImage;
+    image_t originalImage, preProcessedImage, resultImage;
     FILE *infp, *outfp;
+    int typeOfFilter, typeOfEquation;
 
     /* 引数の解析 */
-    parseArg(argc, argv, &infp, &outfp);
+    parseArg(argc, argv, &infp, &outfp, &typeOfFilter, &typeOfEquation);
 
     /* 元画像の画像ファイルのヘッダ部分を読み込み、画像構造体を初期化 */
     /* する */
@@ -306,12 +411,23 @@ int main(int argc, char **argv)
     /* 元画像の画像ファイルのビットマップデータを読み込む */
     readPgmRawBitmapData(infp, &originalImage);
 
+    /* 前処理した画像の画像構造体を初期化する。画像数、階調数は元画像の3倍
+    initImage(&preProcessedImage, originalImage.width*3, originalImage.height*3,
+            originalImage.maxValue);*/
+
     /* 結果画像の画像構造体を初期化する。画素数、階調数は元画像と同じ */
     initImage(&resultImage, originalImage.width, originalImage.height,
             originalImage.maxValue);
 
-    /* フィルタリング */
-    filteringImage(&resultImage, &originalImage);
+    /* コマンドライン引数で指定されたフィルタでフィルタリングを行う */
+    /* 1: Robertsフィルタ 2: Prewittフィルタ 3: Sobelフィルタ */
+    if (typeOfFilter==0){
+      filteringImage(&resultImage, &originalImage);
+    }else if(typeOfFilter==1){
+      roberts(&resultImage, &originalImage);
+    }else if(typeOfFilter==2 | typeOfFilter==3){
+      prewittOrSobel(&resultImage, &originalImage, &typeOfFilter, &typeOfEquation);
+    }
 
     /* 画像ファイルのヘッダ部分の書き込み */
     writePgmRawHeader(outfp, &resultImage);
