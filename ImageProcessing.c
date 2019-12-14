@@ -201,6 +201,7 @@ error:
 void
 readPgmRawBitmapData(FILE *fp, image_t *ptImage)
 {
+    /* ファイルfpからサイズsizeof(unsigned char)バイトのデータをptImage->width * ptImage->height個読み込み、ptImage->dataに格納 */
     if( fread(ptImage->data, sizeof(unsigned char),
             ptImage->width * ptImage->height, fp)
             != ptImage->width * ptImage->height )
@@ -218,16 +219,9 @@ readPgmRawBitmapData(FILE *fp, image_t *ptImage)
  * 反転)して、image_t *resultImage に格納する
  */
 void
-filteringImage(image_t *resultImage, image_t *originalImage)
+filteringImage(image_t *resultImage, image_t *originalImage, int width, int height)
 {
     int     x, y;
-    int     width, height;
-    //unsigned char tmpPixel;
-
-    /* originalImage と resultImage のサイズが違う場合は、共通部分のみ */
-    /* を処理する。*/
-    width = min(originalImage->width, resultImage->width);
-    height = min(originalImage->height, resultImage->height);
 
     for(y=0; y<height; y++)
     {
@@ -242,12 +236,12 @@ filteringImage(image_t *resultImage, image_t *originalImage)
     }
 }
 
+/* Robertsフィルタ */
 void
-roberts(image_t *resultImage, image_t *originalImage)
+roberts(image_t *resultImage, image_t *originalImage, int width, int height)
 {
-    int     x, y, l, m;
+    int x, y, l, m;
     float g1, g2;
-    int     width, height;
     float tmpPixel;
 
     /* originalImage と resultImage のサイズが違う場合は、共通部分のみ */
@@ -259,14 +253,18 @@ roberts(image_t *resultImage, image_t *originalImage)
     {
         for(x=0; x<width; x++)
         {
-
+          /* x+1 か y+1 が画像の外にはみ出した場合の対策 */
+          /* はみ出した場合、画像の端の階調値とする */
           l = ((x+1)>width-1) ? width-1 : x+1;
           m = ((y+1)>height-1) ? height-1 : y+1;
 
+          /* Robertsフィルタの式 */
           g1 = sqrt(originalImage->data[x+originalImage->width*y]) - sqrt(originalImage->data[l+originalImage->width*m]);
           g2 = sqrt(originalImage->data[x+originalImage->width*m]) - sqrt(originalImage->data[l+originalImage->width*y]);
           tmpPixel = sqrt(g1*g1 + g2*g2);
 
+          /* 階調値が0~255の範囲に収まらない場合、255にする */
+          /* そうでなければ、出力画像の階調値とする */
           tmpPixel = (tmpPixel<0) ? 0 : ((tmpPixel>=255) ? 255 : tmpPixel );
           resultImage->data[x+resultImage->width*y] = tmpPixel;
 
@@ -274,16 +272,13 @@ roberts(image_t *resultImage, image_t *originalImage)
     }
 }
 
+/*  PrewittフィルタかSobelフィルタ */
 void
-prewittOrSobel(image_t *resultImage, image_t *originalImage, int *typeOfFilter, int *typeOfEquation)
+prewittOrSobel(image_t *resultImage, image_t *originalImage, int *typeOfFilter, int *typeOfEquation, int width, int height)
 {
   double tmpX, tmpY;
   int o, p, j, k, x, y;
   double tmpPixel;
-  int width, height;
-
-  width = min(originalImage->width, resultImage->width);
-  height = min(originalImage->height, resultImage->height);
 
   //Prewittフィルタ
   int prewittX[9] = {-1, 0, 1, //水平方向
@@ -301,8 +296,6 @@ prewittOrSobel(image_t *resultImage, image_t *originalImage, int *typeOfFilter, 
                     0,  0,  0,
                     1,  2,  1};
 
-
-
   for(y=0; y<height; y++)
   {
     for(x=0; x<width; x++)
@@ -315,27 +308,105 @@ prewittOrSobel(image_t *resultImage, image_t *originalImage, int *typeOfFilter, 
         for(p=-1; p<=1; p++){
           j = ((x+o)<0) ? 0 : (((x+o)>width-1) ? width-1 : x+o);
           k = ((y+p)<0) ? 0 : (((y+p)>height-1) ? height-1 : y+p);
-          if(*typeOfFilter==2){ /* Prewittフィルタを使う場合 */
+          if(*typeOfFilter==2){ /* コマンドラインでPrewittフィルタを指定した場合 */
             tmpX += prewittX[(o+1)+COEFFICIENTSIZE*(p+1)]*originalImage->data[j+originalImage->width*k];
             tmpY += prewittY[(o+1)+COEFFICIENTSIZE*(p+1)]*originalImage->data[j+originalImage->width*k];
-          }else if(*typeOfFilter==3){ /* Soberフィルタを使う場合 */
+          }else if(*typeOfFilter==3){ /* コマンドラインでSoberフィルタを指定した場合 */
             tmpX += sobelX[(o+1)+COEFFICIENTSIZE*(p+1)]*originalImage->data[j+originalImage->width*k];
             tmpY += sobelY[(o+1)+COEFFICIENTSIZE*(p+1)]*originalImage->data[j+originalImage->width*k];
           }
         }
       }
 
-      /* 式(2)を使う場合 */
+      /* コマンドラインで式(2)を指定した場合 */
       if(*typeOfEquation==2){
         tmpPixel = sqrt(tmpX*tmpX + tmpY*tmpY);
       }else{ /* 特に指定しなければ式(3)を使う */
         tmpPixel = fabs(tmpX) + fabs(tmpY);
       }
-      tmpPixel = (tmpPixel<0) ? 0 : ((tmpPixel>=255) ? 255 : tmpPixel );　/* 階調値が0から255の範囲に収るようにする*/
+      tmpPixel = (tmpPixel<0) ? 0 : ((tmpPixel>=255) ? 255 : tmpPixel ); /* 階調値が0から255の範囲に収るようにする*/
       resultImage->data[x+resultImage->width*y] = tmpPixel; /* 新しい階調値を設定する*/
     }
   }
 }
+
+/* 各階調値の画素の数 */
+void
+calcTotalPixelsInClass(image_t *originalImage, int n[], int width, int height){
+  int x, y, index;
+
+  for(y=0; y<height; y++)
+  {
+    for(x=0; x<width; x++)
+    {
+      index = originalImage->data[x+originalImage->width*y];
+      n[index] ++;
+    }
+  }
+}
+
+/* 大津の方法 */
+void
+otsu(image_t *resultImage, image_t *originalImage, int n[], int totalPixel, int width, int height){
+  int total0, total1, sigma0, sigma1, sigma3;
+  double w_0, w_1, mean0, mean1, meanT;
+  int i, j, k, l, x, y;
+  int interclassVariance = 0;
+  double currentInterclassVariance;
+  int tonalValue, threshold;
+
+  for(i=0; i<=255; i++){
+    /* 初期化 */
+    w_0 = 0;
+    w_1 = 0;
+    total0 = 0;
+    total1 = 0;
+    mean0 = 0;
+    mean1 = 0;
+    meanT = 0;
+    sigma0 = 0;
+    sigma1 = 0;
+    sigma3 = 0;
+    currentInterclassVariance = 0;
+
+    for(j=0; j<=i ; j++){
+      total0 += n[j];
+      sigma0 += j*n[j];
+    }
+
+    for(k=i+1; k<=255; k++){
+        total1 += n[k];
+        sigma1 += k*n[k];
+    }
+
+    for(l=0; l<=255; l++){
+      sigma3 += l*n[l];
+    }
+
+    w_0 = (double)total0/totalPixel; /* ω_1 */
+    w_1 = (double)total1/totalPixel; /* ω_0 */
+    mean0 = (double)sigma0/total0; /* μ_0 */
+    mean1 = (double)sigma1/total1; /* μ_1 */
+    meanT = (double)sigma3/totalPixel;
+    currentInterclassVariance = w_0*pow((mean0-meanT),2)+w_1*pow((mean1-meanT),2);
+    if(currentInterclassVariance >= interclassVariance){
+      interclassVariance = currentInterclassVariance;
+      threshold = i;
+    }
+  }
+  printf("threshold: %d\n", threshold );
+
+  /* 階調値によって0か1をresultImageに書き込む */
+  for(y=0; y<height; y++)
+  {
+    for(x=0; x<width; x++)
+    {
+      tonalValue = originalImage->data[x+originalImage->width*y];
+      resultImage->data[x+resultImage->width*y] = (tonalValue>threshold) ? 255 : 0;
+    }
+  }
+}
+
 
 /*======================================================================
  * PGM-RAW フォーマットのヘッダ部分の書き込み
@@ -391,15 +462,22 @@ writePgmRawBitmapData(FILE *fp, image_t *ptImage)
     }
 }
 
-
 /*
  * メイン
  */
 int main(int argc, char **argv)
 {
-    image_t originalImage, preProcessedImage, resultImage;
+    image_t originalImage, resultImage;
     FILE *infp, *outfp;
     int typeOfFilter, typeOfEquation;
+    int n[256];
+    int totalPixel, i;
+    int threshold;
+    int width, height;
+
+    for(i=0; i<=255; i++){
+      n[i] = 0;
+    }
 
     /* 引数の解析 */
     parseArg(argc, argv, &infp, &outfp, &typeOfFilter, &typeOfEquation);
@@ -411,23 +489,34 @@ int main(int argc, char **argv)
     /* 元画像の画像ファイルのビットマップデータを読み込む */
     readPgmRawBitmapData(infp, &originalImage);
 
-    /* 前処理した画像の画像構造体を初期化する。画像数、階調数は元画像の3倍
-    initImage(&preProcessedImage, originalImage.width*3, originalImage.height*3,
-            originalImage.maxValue);*/
-
     /* 結果画像の画像構造体を初期化する。画素数、階調数は元画像と同じ */
     initImage(&resultImage, originalImage.width, originalImage.height,
             originalImage.maxValue);
 
+    /* originalImage と resultImage のサイズが違う場合は、共通部分のみ */
+    /* を処理する。*/
+    width = min(originalImage.width, resultImage.width);
+    height = min(originalImage.height, resultImage.height);
+
+    /* 全画素数 */
+    totalPixel = width*height;
+
     /* コマンドライン引数で指定されたフィルタでフィルタリングを行う */
     /* 1: Robertsフィルタ 2: Prewittフィルタ 3: Sobelフィルタ */
-    if (typeOfFilter==0){
-      filteringImage(&resultImage, &originalImage);
+    /*if (typeOfFilter==0){
+      filteringImage(&resultImage, &originalImage, width, height);
     }else if(typeOfFilter==1){
-      roberts(&resultImage, &originalImage);
+      roberts(&resultImage, &originalImage, width, height);
     }else if(typeOfFilter==2 | typeOfFilter==3){
-      prewittOrSobel(&resultImage, &originalImage, &typeOfFilter, &typeOfEquation);
-    }
+      prewittOrSobel(&resultImage, &originalImage, &typeOfFilter, &typeOfEquation, width, height);
+    }*/
+
+    /* 2値化する */
+    /* 各階調値の画素の数を数える */
+    calcTotalPixelsInClass(&originalImage, n, width, height);
+
+    /* 大津の方法で2値化する */
+    otsu(&resultImage, &originalImage, n, totalPixel, width, height);
 
     /* 画像ファイルのヘッダ部分の書き込み */
     writePgmRawHeader(outfp, &resultImage);
