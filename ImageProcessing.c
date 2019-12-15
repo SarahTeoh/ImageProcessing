@@ -244,11 +244,6 @@ roberts(image_t *resultImage, image_t *originalImage, int width, int height)
     float g1, g2;
     float tmpPixel;
 
-    /* originalImage と resultImage のサイズが違う場合は、共通部分のみ */
-    /* を処理する。*/
-    width = min(originalImage->width, resultImage->width);
-    height = min(originalImage->height, resultImage->height);
-
     for(y=0; y<height; y++)
     {
         for(x=0; x<width; x++)
@@ -261,6 +256,11 @@ roberts(image_t *resultImage, image_t *originalImage, int width, int height)
           /* Robertsフィルタの式 */
           g1 = sqrt(originalImage->data[x+originalImage->width*y]) - sqrt(originalImage->data[l+originalImage->width*m]);
           g2 = sqrt(originalImage->data[x+originalImage->width*m]) - sqrt(originalImage->data[l+originalImage->width*y]);
+
+          /* Robertsフィルタの式からルート(2乗根)を取り除いた式 */
+          //g1 = originalImage->data[x+originalImage->width*y] - originalImage->data[l+originalImage->width*m];
+          //g2 = originalImage->data[x+originalImage->width*m] - originalImage->data[l+originalImage->width*y];
+
           tmpPixel = sqrt(g1*g1 + g2*g2);
 
           /* 階調値が0~255の範囲に収まらない場合、255にする */
@@ -503,20 +503,20 @@ int main(int argc, char **argv)
 
     /* コマンドライン引数で指定されたフィルタでフィルタリングを行う */
     /* 1: Robertsフィルタ 2: Prewittフィルタ 3: Sobelフィルタ */
-    /*if (typeOfFilter==0){
+    if (typeOfFilter==0){
       filteringImage(&resultImage, &originalImage, width, height);
     }else if(typeOfFilter==1){
       roberts(&resultImage, &originalImage, width, height);
     }else if(typeOfFilter==2 | typeOfFilter==3){
       prewittOrSobel(&resultImage, &originalImage, &typeOfFilter, &typeOfEquation, width, height);
-    }*/
+    }
 
     /* 2値化する */
     /* 各階調値の画素の数を数える */
-    calcTotalPixelsInClass(&originalImage, n, width, height);
+    //calcTotalPixelsInClass(&originalImage, n, width, height);
 
     /* 大津の方法で2値化する */
-    otsu(&resultImage, &originalImage, n, totalPixel, width, height);
+    //otsu(&resultImage, &originalImage, n, totalPixel, width, height);
 
     /* 画像ファイルのヘッダ部分の書き込み */
     writePgmRawHeader(outfp, &resultImage);
