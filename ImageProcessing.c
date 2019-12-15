@@ -330,6 +330,38 @@ prewittOrSobel(image_t *resultImage, image_t *originalImage, int *typeOfFilter, 
   }
 }
 
+/* Forsenフィルタ */
+void
+forsen(image_t *resultImage, image_t *originalImage, int width, int height)
+{
+    int x, y, l, m;
+    float g1, g2;
+    float tmpPixel;
+
+    for(y=0; y<height; y++)
+    {
+        for(x=0; x<width; x++)
+        {
+          /* x+1 か y+1 が画像の外にはみ出した場合の対策 */
+          /* はみ出した場合、画像の端の階調値とする */
+          l = ((x+1)>width-1) ? width-1 : x+1;
+          m = ((y+1)>height-1) ? height-1 : y+1;
+
+          /* Sobelフィルタの式 */
+          g1 = abs(originalImage->data[x+originalImage->width*y] - originalImage->data[l+originalImage->width*m]);
+          g2 = abs(originalImage->data[x+originalImage->width*m] - originalImage->data[l+originalImage->width*y]);
+
+          tmpPixel = g1 + g2;
+
+          /* 階調値が0~255の範囲に収まらない場合、255にする */
+          /* そうでなければ、出力画像の階調値とする */
+          tmpPixel = (tmpPixel<0) ? 0 : ((tmpPixel>=255) ? 255 : tmpPixel );
+          resultImage->data[x+resultImage->width*y] = tmpPixel;
+
+        }
+    }
+}
+
 /* 各階調値の画素の数 */
 void
 calcTotalPixelsInClass(image_t *originalImage, int n[], int width, int height){
@@ -509,6 +541,8 @@ int main(int argc, char **argv)
       roberts(&resultImage, &originalImage, width, height);
     }else if(typeOfFilter==2 | typeOfFilter==3){
       prewittOrSobel(&resultImage, &originalImage, &typeOfFilter, &typeOfEquation, width, height);
+    }else if(typeOfFilter==4){
+      forsen(&resultImage, &originalImage, width, height);
     }
 
     /* 2値化する */
