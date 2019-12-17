@@ -50,6 +50,10 @@ parseArg(int argc, char **argv, FILE **infp, FILE **outfp, int *typeOfFilter, in
 
     *typeOfFilter = atoi(argv[3]);
 
+    if(*typeOfFilter>7){
+        goto filterNotExistsError;
+    }
+
     if(argv[4]== NULL){
       *typeOfEquation = 0;
     }else{
@@ -68,7 +72,23 @@ parseArg(int argc, char **argv, FILE **infp, FILE **outfp, int *typeOfFilter, in
 usage:
     fprintf(stderr, "usage : %s <input pgm file> <output pgm file> <type of filter> [which equation: 2 or 3]\n", argv[0]);
     exit(1);
+
+/* 指定されたフィルタが存在しない場合のエラーメッセージ */
+filterNotExistsError:
+    fprintf(stderr, "No filter is matched with digit %s\n", argv[3]);
+    fprintf(stderr, "usage : %s <input pgm file> <output pgm file> <type of filter> [which equation: 2 or 3]\n", argv[0]);
+    fprintf(stderr, "<type of filter>:\n");
+    fprintf(stderr, "\t \t 0: ネガポジ反転\n");
+    fprintf(stderr, "\t \t 1: Robertsフィルタ\n");
+    fprintf(stderr, "\t \t 2: Prewittフィルタ\n");
+    fprintf(stderr, "\t \t 3: Sobelフィルタ\n");
+    fprintf(stderr, "\t \t 4: Forsenフィルタ\n");
+    fprintf(stderr, "\t \t 5: 4近傍ラプラシアンフィルタ\n");
+    fprintf(stderr, "\t \t 6: 8近傍ラプラシアンフィルタ\n");
+    fprintf(stderr, "\t \t 7: レンジフィルタ\n");
+    exit(1);
 }
+
 
 
 /*======================================================================
@@ -248,6 +268,7 @@ roberts(image_t *resultImage, image_t *originalImage, int width, int height)
     {
         for(x=0; x<width; x++)
         {
+          tmpPixel = 0.0;
           /* x+1 か y+1 が画像の外にはみ出した場合の対策 */
           /* はみ出した場合、画像の端の階調値とする */
           l = ((x+1)>width-1) ? width-1 : x+1;
@@ -303,6 +324,7 @@ prewittOrSobel(image_t *resultImage, image_t *originalImage, int *typeOfFilter, 
       /* 初期化 */
       tmpX = 0.0;
       tmpY = 0.0;
+      tmpPixel = 0.0;
 
       for(o=-1; o<=1; o++){
         for(p=-1; p<=1; p++){
@@ -342,6 +364,7 @@ forsen(image_t *resultImage, image_t *originalImage, int width, int height)
     {
         for(x=0; x<width; x++)
         {
+          tmpPixel = 0.0;
           /* x+1 か y+1 が画像の外にはみ出した場合の対策 */
           /* はみ出した場合、画像の端の階調値とする */
           l = ((x+1)>width-1) ? width-1 : x+1;
@@ -426,6 +449,7 @@ otsu(image_t *resultImage, image_t *originalImage, int n[], int totalPixel, int 
       threshold = i;
     }
   }
+  /* 閾値を出力する */
   printf("threshold: %d\n", threshold );
 
   /* 階調値によって0か1をresultImageに書き込む */
@@ -435,6 +459,85 @@ otsu(image_t *resultImage, image_t *originalImage, int n[], int totalPixel, int 
     {
       tonalValue = originalImage->data[x+originalImage->width*y];
       resultImage->data[x+resultImage->width*y] = (tonalValue>threshold) ? 255 : 0;
+    }
+  }
+}
+
+/*  4 近傍ラプラシアンフィルタ */
+void
+laplacian(image_t *resultImage, image_t *originalImage, int width, int height, int typeOfFilter)
+{
+  int o, p, j, k, x, y;
+  double tmpPixel;
+
+  // 4 近傍ラプラシアンフィルタ */
+  int fourLaplacianFilter[9] = {0, 1, 0,
+                        1, -4, 1,
+                        0, 1, 0,};
+
+  /* 8 近傍ラプラシアンフィルタ */
+  int eightLaplacianFilter[9] = {1, 1, 1,
+                        1, -8, 1,
+                        1, 1, 1,};
+
+  for(y=0; y<height; y++)
+  {
+    for(x=0; x<width; x++)
+    {
+      tmpPixel = 0.0;
+      for(o=-1; o<=1; o++){
+        for(p=-1; p<=1; p++){
+            /* x+1 か y+1 が画像の外にはみ出した場合の対策 */
+            /* はみ出した場合、画像の端の階調値とする */
+            j = ((x+o)<0) ? 0 : (((x+o)>width-1) ? width-1 : x+o);
+            k = ((y+p)<0) ? 0 : (((y+p)>height-1) ? height-1 : y+p);
+            if(typeOfFilter==5)
+              tmpPixel += fourLaplacianFilter[(o+1)+COEFFICIENTSIZE*(p+1)]*originalImage->data[j+originalImage->width*k];
+            else if(typeOfFilter==6)
+              tmpPixel += eightLaplacianFilter[(o+1)+COEFFICIENTSIZE*(p+1)]*originalImage->data[j+originalImage->width*k];
+
+        }
+      }
+
+      tmpPixel = (tmpPixel<0) ? 0 : ((tmpPixel>=255) ? 255 : tmpPixel ); /* 階調値が0から255の範囲に収るようにする*/
+      resultImage->data[x+resultImage->width*y] = tmpPixel; /* 新しい階調値を設定する*/
+    }
+  }
+}
+
+/* レンジフィルタ */
+void
+range(image_t *resultImage, image_t *originalImage, int width, int height)
+{
+  double min, max;
+  int o, p, j, k, x, y;
+  int currentPixel;
+  double tmpPixel;
+
+  for(y=0; y<height; y++)
+  {
+    for(x=0; x<width; x++)
+    {
+      /* 初期化 */
+      min = originalImage->data[x+originalImage->width*y];
+      max = originalImage->data[x+originalImage->width*y];
+      tmpPixel = 0.0;
+
+      for(o=-1; o<=1; o++){
+        for(p=-1; p<=1; p++){
+          j = ((x+o)<0) ? 0 : (((x+o)>width-1) ? width-1 : x+o);
+          k = ((y+p)<0) ? 0 : (((y+p)>height-1) ? height-1 : y+p);
+          currentPixel = originalImage->data[j+originalImage->width*k];
+          if(currentPixel <= min )
+              min = currentPixel;
+          else if(currentPixel >= max)
+              max = currentPixel;
+        }
+      }
+
+      tmpPixel = max - min;
+      tmpPixel = (tmpPixel<0) ? 0 : ((tmpPixel>=255) ? 255 : tmpPixel ); /* 階調値が0から255の範囲に収るようにする*/
+      resultImage->data[x+resultImage->width*y] = tmpPixel; /* 新しい階調値を設定する*/
     }
   }
 }
@@ -534,7 +637,8 @@ int main(int argc, char **argv)
     totalPixel = width*height;
 
     /* コマンドライン引数で指定されたフィルタでフィルタリングを行う */
-    /* 1: Robertsフィルタ 2: Prewittフィルタ 3: Sobelフィルタ */
+    /* 1: Robertsフィルタ 2: Prewittフィルタ 3: Sobelフィルタ 4: Forsenフィルタ */
+    /* 5: 4近傍ラプラシアンフィルタ 6: 8近傍ラプラシアンフィルタ 7: レンジフィルタ*/
     if (typeOfFilter==0){
       filteringImage(&resultImage, &originalImage, width, height);
     }else if(typeOfFilter==1){
@@ -543,6 +647,10 @@ int main(int argc, char **argv)
       prewittOrSobel(&resultImage, &originalImage, &typeOfFilter, &typeOfEquation, width, height);
     }else if(typeOfFilter==4){
       forsen(&resultImage, &originalImage, width, height);
+    }else if(typeOfFilter==5 | typeOfFilter==6){
+      laplacian(&resultImage, &originalImage, width, height, typeOfFilter);
+    }else if(typeOfFilter==7){
+      range(&resultImage, &originalImage, width, height);
     }
 
     /* 2値化する */
